@@ -93,7 +93,7 @@ class EncoderModel(nn.Module):
         self.extend_multi_transformerencoder = torch.nn.TransformerEncoder(self.extend_multi_transformerencoderlayer, self.num_layers).to(self.device)
 
 
-    def forward(self, query: Dict[str, Tensor] = None, passage: Dict[str, Tensor] = None, positive_passage: Dict[str, Tensor] = None, neg_score: Tensor = None):
+    def forward(self, query: Dict[str, Tensor] = None, passage: Dict[str, Tensor] = None, pos_passages: Dict[str, Tensor] = None, neg_score: Tensor = None):
         # query's 'input_ids' have shape [128, 32] : seems like batch size is 128 in encoding
         # passage's 'input_ids' have shape [128, 128] : seems like batch size is 128 in encoding
 
@@ -142,13 +142,16 @@ class EncoderModel(nn.Module):
             # cross-entropy loss
             student_loss = self.compute_loss(scores, target) 
 
+
             # compute teacher scores
             original_q_reps = self.original_encode_query(query) #torch tensor [8, 768] 
-            original_positive_p_reps = self.original_encode_passage(positive_passage) #torch [8, 768]
-            original_positive_scores = self.compute_positive_similarity(original_q_reps, original_positive_p_reps)
-            original_neg_scores = neg_scores # list of [8,63]
+            print("org_q_reps size ", original_q_reps.size())
+            print("positive passages ", pos_passages) #None이다.. 왜지??
+            original_positive_p_reps = self.original_encode_positive_passage(pos_passages) #torch [8, 768]
             print("org_pos_reps size ", original_positive_p_reps.size())
+            original_positive_scores = self.compute_positive_similarity(original_q_reps, original_positive_p_reps) # [8,1]
             print("org_pos_scores size ", original_positive_scores.size())
+            original_neg_scores = neg_score # list of [8,63] #얘도 None이다..
             print("org_neg_scores size ", original_neg_scores.size())
 
             #TODO: make teacher_scores of torch tensor [8, 64]. Per query, Add one corresponding positive_score in front of 63 neg_scores

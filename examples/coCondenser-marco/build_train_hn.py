@@ -13,18 +13,18 @@ def load_ranking(rank_file, relevance, n_sample, depth):
         q_0, p_0, score_0 = next(lines).strip().split()
 
         curr_q = q_0
-        neg_candidates = [] if p_0 in relevance[q_0] else [(p_0, float(score_0))]
+        neg_candidates = [] if p_0 in relevance[q_0] else [(p_0, float(score_0))] # relevance에 들어있는 것이 positive doc인지?
 
         while True:
             try:
                 q, p, score = next(lines).strip().split()
+                # If query changes to other query, yield the current query
                 if q != curr_q:
                     neg_candidates = neg_candidates[:depth]
-                    random.shuffle(neg_candidates)
+                    # random.shuffle(neg_candidates) # 저희는 random shuffle 보다 hardest negative를 뽑는 것이 더 좋을듯요
 
                     # Extract passages and scores
                     neg_passages, neg_scores = zip(*neg_candidates[:n_sample]) if neg_candidates else ([], [])
-
                     yield curr_q, relevance[curr_q], list(neg_passages), list(neg_scores)
                     curr_q = q
                     neg_candidates = [] if p in relevance[q] else [(p, float(score))]

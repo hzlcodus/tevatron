@@ -58,8 +58,9 @@ class TevatronTrainer(Trainer):
         )
 
     def compute_loss(self, model, inputs):
-        query, passage = inputs
-        return model(query=query, passage=passage).loss
+        print("inputs ", inputs)
+        query, passage, pos_passages, neg_score = inputs
+        return model(query=query, passage=passage, pos_passages=pos_passages, neg_score=neg_score).loss
 
     def training_step(self, *args):
         return super(TevatronTrainer, self).training_step(*args) / self._dist_loss_scale_factor
@@ -107,11 +108,11 @@ class GCTrainer(TevatronTrainer):
 
     def training_step(self, model, inputs) -> torch.Tensor:
         model.train()
-        queries, passages = self._prepare_inputs(inputs)
-        queries, passages = {'query': queries}, {'passage': passages}
+        queries, passages, pos_passages, neg_score = self._prepare_inputs(inputs)
+        queries, passages, pos_passages, neg_score = {'query': queries}, {'passage': passages}, {'pos_passage': pos_passages}, {'neg_score': neg_score}
 
         _distributed = self.args.local_rank > -1
         self.gc.models = [model, model]
-        loss = self.gc(queries, passages, no_sync_except_last=_distributed)
+        loss = self.gc(queries, passages, pos_passages, neg_score, no_sync_except_last=_distributed)
 
         return loss / self._dist_loss_scale_factor

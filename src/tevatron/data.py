@@ -102,6 +102,12 @@ class TrainDataset(Dataset):
             neg_psg = group_negatives[neg_index]
             encoded_passages.append(self.create_one_example(neg_psg))
 
+        # print("encoded query ", len(encoded_query)) # 1
+        # print("encoded passages ", len(encoded_passages)) # 64
+        # print("encoded pos passages ", len(encoded_positive_passages)) # 1
+        # print("neg scores ", len(selected_neg_scores)) # 63
+
+
         return encoded_query, encoded_passages, encoded_positive_passages, selected_neg_scores
 
 
