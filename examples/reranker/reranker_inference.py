@@ -83,12 +83,16 @@ def main():
     model.eval()
     all_results = {}
 
-    for (batch_query_ids, batch_text_ids, batch) in tqdm(rerank_loader):
+    for (batch_query_ids, batch_text_ids, q_collated, d_collated) in tqdm(rerank_loader):
+ 
         with torch.cuda.amp.autocast() if training_args.fp16 else nullcontext():
             with torch.no_grad():
-                for k, v in batch.items():
-                    batch[k] = v.to(training_args.device)
-                model_output = model(batch)
+                # for k, v in batch.items():
+                #     batch[k] = v.to(training_args.device)
+                q_collated = {k: v.to(training_args.device) for k, v in q_collated.items()}
+                d_collated = {k: v.to(training_args.device) for k, v in d_collated.items()}
+
+                model_output = model(q_collated, d_collated)
                 scores = model_output.scores.cpu().detach().numpy()
                 for i in range(len(scores)):
                     qid = batch_query_ids[i]

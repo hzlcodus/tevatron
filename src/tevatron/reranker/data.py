@@ -26,15 +26,26 @@ class RerankerTrainDataset(Dataset):
         self.data_args = data_args
         self.total_len = len(self.train_data)
 
-    def create_one_example(self, query_encoding: List[int], text_encoding: List[int]):
+    # def create_one_example(self, query_encoding: List[int], text_encoding: List[int]):
+    #     item = self.tok.prepare_for_model(
+    #         query_encoding,
+    #         text_encoding,
+    #         truncation='only_first',
+    #         max_length=self.data_args.q_max_len + self.data_args.p_max_len,
+    #         padding=False,
+    #         return_attention_mask=False,
+    #         return_token_type_ids=True,
+    #     )
+    #     return item
+
+    def create_one_example(self, text_encoding: List[int], is_query=False):
         item = self.tok.prepare_for_model(
-            query_encoding,
             text_encoding,
             truncation='only_first',
-            max_length=self.data_args.q_max_len + self.data_args.p_max_len,
+            max_length=self.data_args.q_max_len if is_query else self.data_args.p_max_len,
             padding=False,
             return_attention_mask=False,
-            return_token_type_ids=True,
+            return_token_type_ids=False,
         )
         return item
 
@@ -44,6 +55,9 @@ class RerankerTrainDataset(Dataset):
     def __getitem__(self, item) -> Tuple[BatchEncoding, List[BatchEncoding]]:
         group = self.train_data[item]
         qry = group['query']
+        encoded_query = self.create_one_example(qry, is_query=True)
+
+        encoded_passages = []
         group_positives = group['positives']
         group_negatives = group['negatives']
         encoded_pairs = []
@@ -52,7 +66,10 @@ class RerankerTrainDataset(Dataset):
             pos_psg = group_positives[0]
         else:
             pos_psg = random.sample(group_positives, 1)[0]
-        encoded_pairs.append(self.create_one_example(qry, pos_psg))
+        #encoded_pairs.append(self.create_one_example(qry, pos_psg))
+        pos_psg_out = self.create_one_example(pos_psg)
+        # encoded_positive_passages.append(pos_psg_out)
+        encoded_passages.append(pos_psg_out)
 
         negative_size = self.data_args.train_n_passages - 1
         if len(group_negatives) < negative_size:
@@ -62,9 +79,11 @@ class RerankerTrainDataset(Dataset):
         else:
             negs = random.sample(group_negatives, negative_size)
         for neg_psg in negs:
-            encoded_pairs.append(self.create_one_example(qry, neg_psg))
+            #encoded_pairs.append(self.create_one_example(qry, neg_psg))
+            encoded_passages.append(self.create_one_example(neg_psg))
 
-        return encoded_pairs
+        #return encoded_pairs
+        return encoded_query, encoded_passages
 
 
 class RerankerInferenceDataset(Dataset):
@@ -81,15 +100,21 @@ class RerankerInferenceDataset(Dataset):
 
     def __getitem__(self, item) -> Tuple[str, BatchEncoding]:
         query_id, query, text_id, text = (self.encode_data[item][f] for f in self.input_keys)
-        encoded_pair = self.tok.prepare_for_model(
+        encoded_query = self.tok.prepare_for_model(
             query,
-            text,
-            max_length=self.max_q_len + self.max_p_len,
+            max_length=self.max_q_len,
             truncation='only_first',
             padding=False,
             return_token_type_ids=True,
         )
-        return query_id, text_id, encoded_pair
+        encoded_text = self.tok.prepare_for_model(
+            text,
+            max_length=self.max_p_len,
+            truncation='only_first',
+            padding=False,
+            return_token_type_ids=True,
+        )
+        return query_id, text_id, encoded_query, encoded_text
 
 
 @dataclass
@@ -114,9 +139,13 @@ class RerankerInferenceCollator(DataCollatorWithPadding):
     def __call__(self, features):
         query_ids = [x[0] for x in features]
         text_ids = [x[1] for x in features]
-        text_features = [x[2] for x in features]
-        collated_features = super().__call__(text_features)
-        return query_ids, text_ids, collated_features
+        queries = [x[2] for x in features]
+        collated_queries = super().__call__(queries)
+        texts = [x[3] for x in features]
+        collated_texts = super().__call__(texts)
+        return query_ids, text_ids, collated_queries, collated_texts
+
+        return qq, dd, q_collated, d_collated
 
 
 class RerankPreProcessor:
