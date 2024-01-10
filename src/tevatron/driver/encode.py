@@ -33,7 +33,6 @@ def main():
         model_args: ModelArguments
         data_args: DataArguments
         training_args: TrainingArguments
-
     if training_args.local_rank > 0 or training_args.n_gpu > 1:
         raise NotImplementedError('Multi-GPU encoding is not supported.')
 
@@ -58,6 +57,8 @@ def main():
     model = DenseModel.load(
         model_name_or_path=model_args.model_name_or_path,
         config=config,
+        model_args = model_args,
+        train_args = training_args,
         cache_dir=model_args.cache_dir,
     )
 
@@ -91,7 +92,7 @@ def main():
     for (batch_ids, batch) in tqdm(encode_loader):
         lookup_indices.extend(batch_ids)
         with torch.cuda.amp.autocast() if training_args.fp16 else nullcontext():
-            with torch.no_grad():
+            with torch.no_grad(): # since inference time
                 for k, v in batch.items():
                     batch[k] = v.to(training_args.device)
                 if data_args.encode_is_qry:

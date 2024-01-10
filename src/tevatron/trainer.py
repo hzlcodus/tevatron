@@ -24,6 +24,7 @@ class TevatronTrainer(Trainer):
     def __init__(self, *args, **kwargs):
         super(TevatronTrainer, self).__init__(*args, **kwargs)
         self._dist_loss_scale_factor = dist.get_world_size() if self.args.negatives_x_device else 1
+        # self.step_counter = 0  # Initialize a step counter
 
     def _save(self, output_dir: Optional[str] = None):
         output_dir = output_dir if output_dir is not None else self.args.output_dir
@@ -59,10 +60,16 @@ class TevatronTrainer(Trainer):
 
     def compute_loss(self, model, inputs):
         query, passage = inputs
+        # print("inputs ", inputs)
+        print("inputs", inputs)
+        print("queries", query)
+        print("passages", passage)
+
         return model(query=query, passage=passage).loss
 
     def training_step(self, *args):
-        return super(TevatronTrainer, self).training_step(*args) / self._dist_loss_scale_factor
+        loss = super(TevatronTrainer, self).training_step(*args) / self._dist_loss_scale_factor
+        return loss
 
 
 def split_dense_inputs(model_input: dict, chunk_size: int):
@@ -108,6 +115,10 @@ class GCTrainer(TevatronTrainer):
     def training_step(self, model, inputs) -> torch.Tensor:
         model.train()
         queries, passages = self._prepare_inputs(inputs)
+        print("inputs", inputs)
+        print("queries", queries)
+        print("passages", passages)
+        raise Exception("!!")
         queries, passages = {'query': queries}, {'passage': passages}
 
         _distributed = self.args.local_rank > -1

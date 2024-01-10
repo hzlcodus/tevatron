@@ -19,6 +19,11 @@ class ModelArguments:
         default=None, metadata={"help": "Where do you want to store the pretrained models downloaded from s3"}
     )
 
+    teacher_loss: bool = field(
+        default=False,
+        metadata={"help": "distillation loss used in training"}
+    )
+
     # modeling
     untie_encoder: bool = field(
         default=False,
@@ -53,7 +58,7 @@ class DataArguments:
     dataset_proc_num: int = field(
         default=12, metadata={"help": "number of proc used in dataset preprocess"}
     )
-    train_n_passages: int = field(default=8)
+    train_n_passages: int = field(default=64)
     positive_passage_no_shuffle: bool = field(
         default=False, metadata={"help": "always use the first positive passage"})
     negative_passage_no_shuffle: bool = field(
