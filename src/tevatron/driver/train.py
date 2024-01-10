@@ -16,6 +16,7 @@ from tevatron.modeling import DenseModel
 from tevatron.trainer import TevatronTrainer as Trainer, GCTrainer
 from tevatron.datasets import HFTrainDataset
 import torch.distributed as dist
+import wandb
 
 
 logger = logging.getLogger(__name__)
@@ -78,6 +79,10 @@ def main():
     ) 
     # print ("model_args: ", model_args)
     # print ("training_args: ", training_args)
+    wandb.init(project="cme", config=model_args)
+    wandb.config.update(training_args)
+    wandb.config.update(data_args)
+
     model = DenseModel.build(
         model_args,
         training_args,

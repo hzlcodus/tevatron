@@ -33,7 +33,6 @@ def main():
         model_args: ModelArguments
         data_args: DataArguments
         training_args: TrainingArguments
-
     if training_args.local_rank > 0 or training_args.n_gpu > 1:
         raise NotImplementedError('Multi-GPU encoding is not supported.')
 
@@ -58,6 +57,8 @@ def main():
     model = DenseModel.load(
         model_name_or_path=model_args.model_name_or_path,
         config=config,
+        model_args = model_args,
+        train_args = training_args,
         cache_dir=model_args.cache_dir,
     )
 

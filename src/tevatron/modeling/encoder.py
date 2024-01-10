@@ -13,6 +13,7 @@ from tevatron.arguments import ModelArguments, \
     TevatronTrainingArguments as TrainingArguments
 
 import logging
+import wandb
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +60,7 @@ class EncoderModel(nn.Module):
                  lm_p: PreTrainedModel,
                  pooler: nn.Module = None,
                  untie_encoder: bool = False,
+                 teacher_loss: bool = False,
                  negatives_x_device: bool = False,
                  args = None,
                  num_heads = 2, num_layers = 2
@@ -77,6 +79,7 @@ class EncoderModel(nn.Module):
         self.cross_entropy = nn.CrossEntropyLoss(reduction='mean')
         self.negatives_x_device = negatives_x_device
         self.untie_encoder = untie_encoder
+        self.teacher_loss = teacher_loss
         if self.negatives_x_device:
             if not dist.is_initialized():
                 raise ValueError('Distributed training has not been initialized for representation all gather.')
@@ -93,14 +96,14 @@ class EncoderModel(nn.Module):
         self.extend_multi_transformerencoder = torch.nn.TransformerEncoder(self.extend_multi_transformerencoderlayer, self.num_layers).to(self.device)
 
 
-    def forward(self, query: Dict[str, Tensor] = None, passage: Dict[str, Tensor] = None, pos_passages: Dict[str, Tensor] = None, neg_score: Tensor = None):
+    def forward(self, query: Dict[str, Tensor] = None, passage: Dict[str, Tensor] = None):
         # query's 'input_ids' have shape [128, 32] : seems like batch size is 128 in encoding
         # passage's 'input_ids' have shape [128, 128] : seems like batch size is 128 in encoding
 
         q_reps = self.encode_query(query) # torch.Size([128, 768]) in encoding, [8, 768] in training
         p_reps = self.encode_passage(passage) # torch.Size([128, 768]) in encoding, [240, 768] in training
 
-        # with open('debugoutput.txt', 'w') as f:
+        # with open('trainoutput.txt', 'w') as f:
         #     # Redirect the print output to the file for each print statement
         #     print("query: ", file=f)
         #     print(query, file=f)
@@ -108,10 +111,10 @@ class EncoderModel(nn.Module):
         #     print(passage, file=f)
         #     print("q_reps size: ", q_reps.size(), file=f)
         #     print("p_reps size: ", p_reps.size(), file=f)
-        #     print("q_reps: ", file=f)
-        #     print(q_reps, file=f)
-        #     print("p_reps: ", file=f)
-        #     print(p_reps, file=f)
+        #     # print("q_reps: ", file=f)
+        #     # print(q_reps, file=f)
+        #     # print("p_reps: ", file=f)
+        #     # print(p_reps, file=f)
 
         # raise Exception("debugging")
 
@@ -134,45 +137,43 @@ class EncoderModel(nn.Module):
             scores = self.extend_multi(q_reps, p_reps)
             #scores = self.compute_similarity(q_reps, p_reps)
             scores = scores.view(q_reps.size(0), -1)
+            # print("scores size ", scores.size())
+            # print("scores", scores)
             # probably ground truth # seems like same index of query and passage is positive
             # since I changed the scores to [8, 30], gold label is zero index.
             target = torch.zeros(scores.size(0), device=scores.device, dtype=torch.long)
-            #print("target", target)
-
             # cross-entropy loss
             student_loss = self.compute_loss(scores, target) 
 
+            if self.teacher_loss:
+                # compute teacher scores
+                original_q_reps = self.original_encode_query(query) #torch tensor [8, 768] 
+                print("org_q_reps size ", original_q_reps.size())
+                print("positive passages ", pos_passages) #None이다.. 왜지??
+                original_positive_p_reps = self.original_encode_positive_passage(pos_passages) #torch [8, 768]
+                print("org_pos_reps size ", original_positive_p_reps.size())
+                original_positive_scores = self.compute_positive_similarity(original_q_reps, original_positive_p_reps) # [8,1]
+                print("org_pos_scores size ", original_positive_scores.size())
+                original_neg_scores = neg_score # list of [8,63] #얘도 None이다..
+                print("org_neg_scores size ", original_neg_scores.size())
 
-            # compute teacher scores
-            original_q_reps = self.original_encode_query(query) #torch tensor [8, 768] 
-            print("org_q_reps size ", original_q_reps.size())
-            print("positive passages ", pos_passages) #None이다.. 왜지??
-            original_positive_p_reps = self.original_encode_positive_passage(pos_passages) #torch [8, 768]
-            print("org_pos_reps size ", original_positive_p_reps.size())
-            original_positive_scores = self.compute_positive_similarity(original_q_reps, original_positive_p_reps) # [8,1]
-            print("org_pos_scores size ", original_positive_scores.size())
-            original_neg_scores = neg_score # list of [8,63] #얘도 None이다..
-            print("org_neg_scores size ", original_neg_scores.size())
+                #TODO: make teacher_scores of torch tensor [8, 64]. Per query, Add one corresponding positive_score in front of 63 neg_scores
+                teacher_scores = torch.cat([original_positive_scores, original_neg_scores], dim = 1) # [8, 64]
 
-            #TODO: make teacher_scores of torch tensor [8, 64]. Per query, Add one corresponding positive_score in front of 63 neg_scores
-            teacher_scores = torch.cat([original_positive_scores, original_neg_scores], dim = 1) # [8, 64]
+                # distillation loss
+                teacher_loss = distillation_loss(scores, teacher_scores) 
+                
+                #TODO: if args, set alpha
+                alpha = 0.5
+                loss = alpha*student_loss + (1-alpha)*teacher_loss
+            else: 
+                loss = student_loss
 
-            raise Exception("encoder")
-
-            # distillation loss
-            teacher_loss = distillation_loss(scores, teacher_scores) 
-            
-            #TODO: if args, set alpha
-            alpha = 0.5
-            loss = alpha*student_loss + (1-alpha)*teacher_loss
-
-            print("loss ", loss)
-            raise Exception("debugging encoder")
             if self.negatives_x_device:
                 loss = loss * self.world_size  # counter average weight reduction
         # for eval, model.eval
         else:
-            scores = self.compute_similarity(q_reps, p_reps)
+            scores = self.extend_multi(q_reps, p_reps)
             loss = None
         return EncoderOutput(
             loss=loss,
@@ -215,8 +216,6 @@ class EncoderModel(nn.Module):
 
 
     def compute_loss(self, scores, target):
-        #print("scores", scores.shape)
-        #print("target", target.shape)
         return self.cross_entropy(scores, target)
 
     def _dist_gather_tensor(self, t: Optional[torch.Tensor]):
@@ -276,7 +275,8 @@ class EncoderModel(nn.Module):
             lm_p=lm_p,
             pooler=pooler,
             negatives_x_device=train_args.negatives_x_device,
-            untie_encoder=model_args.untie_encoder
+            untie_encoder=model_args.untie_encoder,
+            teacher_loss=model_args.teacher_loss
         )
         return model
 
@@ -284,6 +284,8 @@ class EncoderModel(nn.Module):
     def load(
             cls,
             model_name_or_path,
+            model_args,
+            train_args: TrainingArguments,
             **hf_kwargs,
     ):
         # load local
@@ -365,7 +367,6 @@ class EncoderModel(nn.Module):
         # Get score from dot product
         scores = torch.bmm(attention_result[:,0,:].unsqueeze(1), attention_result[:,1:,:].transpose(2,1))
         scores = scores.squeeze(-2) # size [8, 30]
-
         return scores
 
 

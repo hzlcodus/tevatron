@@ -19,6 +19,11 @@ class ModelArguments:
         default=None, metadata={"help": "Where do you want to store the pretrained models downloaded from s3"}
     )
 
+    teacher_loss: bool = field(
+        default=False,
+        metadata={"help": "distillation loss used in training"}
+    )
+
     # modeling
     untie_encoder: bool = field(
         default=False,

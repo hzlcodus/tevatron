@@ -5,7 +5,7 @@ import glob
 from argparse import ArgumentParser
 from itertools import chain
 from tqdm import tqdm
-
+import csv
 from .retriever import BaseFaissIPRetriever
 
 import logging
@@ -17,13 +17,12 @@ logging.basicConfig(
 )
 
 
-def search_queries(retriever, q_reps, p_lookup, args):
+def search_queries(retriever, q_reps, p_lookup, args, q_lookup=None, label_dict = None):
     logger.info ("called search_queries")
     if args.batch_size > 0:
-        all_scores, all_indices = retriever.batch_search(q_reps, args.depth, args.batch_size, args.quiet)
+        all_scores, all_indices = retriever.batch_search(q_reps, args.depth, args.batch_size, args.quiet, q_lookup = q_lookup, label_dict = label_dict)
     else:
         all_scores, all_indices = retriever.search(q_reps, args.depth)
-
     psg_indices = [[str(p_lookup[x]) for x in q_dd] for q_dd in all_indices]
     psg_indices = np.array(psg_indices)
     return all_scores, psg_indices
@@ -58,6 +57,8 @@ def main():
     parser.add_argument('--save_ranking_to', required=True)
     parser.add_argument('--save_text', action='store_true')
     parser.add_argument('--quiet', action='store_true')
+    parser.add_argument('--label_dir', type=str, default='/data/cme/marco/qrels.train.tsv')
+
 
     args = parser.parse_args()
 
@@ -65,7 +66,7 @@ def main():
     logger.info(f'Pattern match found {len(index_files)} files; loading them into index.')
 
     p_reps_0, p_lookup_0 = pickle_load(index_files[0])
-    retriever = BaseFaissIPRetriever(p_reps_0)
+    retriever = CMERetriever(p_reps_0)
 
     shards = chain([(p_reps_0, p_lookup_0)], map(pickle_load, index_files[1:]))
     if len(index_files) > 1:
@@ -80,7 +81,18 @@ def main():
 
     logger.info('Index Search Start')
     logger.info ('Trying to call search_queries')
-    all_scores, psg_indices = search_queries(retriever, q_reps, look_up, args)
+
+    label_dict = {}
+
+    # Replace 'your_file.tsv' with your TSV file's path
+    with open(args.label_dir, newline='') as file:
+        tsv_reader = csv.reader(file, delimiter='\t')
+        for row in tsv_reader:
+            # Ensure the row has at least 3 elements
+            label_dict[row[0]] = row[2]
+
+
+    all_scores, psg_indices = search_queries(retriever, q_reps, look_up, args, q_lookup, label_dict)
     logger.info('Index Search Finished')
 
     if args.save_text:

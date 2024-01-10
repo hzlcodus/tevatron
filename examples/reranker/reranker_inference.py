@@ -80,11 +80,25 @@ def main():
         num_workers=training_args.dataloader_num_workers,
     )
     model = model.to(training_args.device)
+
     model.eval()
     all_results = {}
 
-    for (batch_query_ids, batch_text_ids, q_collated, d_collated) in tqdm(rerank_loader):
- 
+    total_batches = len(rerank_loader) # 6974598
+
+    for batch_index, (batch_query_ids, batch_text_ids, q_collated, d_collated) in enumerate(tqdm(rerank_loader)):
+        # with open('batchoutput.txt', 'w') as f:
+        #     # Redirect the print output to the file for each print statement
+        #     print(batch_query_ids, file=f)
+        #     print(len(batch_query_ids), file=f)
+        #     print(batch_text_ids, file=f)
+        #     print(len(batch_text_ids), file=f)
+        #     print(q_collated, file=f)
+        #     print(q_collated['input_ids'].size(), file=f)
+        #     print(d_collated, file=f)
+        #     print(d_collated['input_ids'].size(), file=f)
+
+
         with torch.cuda.amp.autocast() if training_args.fp16 else nullcontext():
             with torch.no_grad():
                 # for k, v in batch.items():
@@ -92,17 +106,49 @@ def main():
                 q_collated = {k: v.to(training_args.device) for k, v in q_collated.items()}
                 d_collated = {k: v.to(training_args.device) for k, v in d_collated.items()}
 
-                model_output = model(q_collated, d_collated)
-                scores = model_output.scores.cpu().detach().numpy()
-                for i in range(len(scores)):
-                    qid = batch_query_ids[i]
-                    docid = batch_text_ids[i]
-                    score = scores[i][0]
-                    if qid not in all_results:
-                        all_results[qid] = []
-                    all_results[qid].append((docid, score))
+                # print(q_collated['input_ids'][0])
+                # print(q_collated['input_ids'][999])
 
-    with open(data_args.encoded_save_path, 'w') as f:
+                for key in q_collated:
+                    q_collated[key] = q_collated[key][0:1]
+
+                if batch_index == total_batches-1:
+                    flag = True
+                else:
+                    flag = False
+                
+                model_output = model(batch_query_ids[0], batch_text_ids[0], q_collated, d_collated, flag)
+
+                if model_output.scores is None:
+                    continue
+
+                scores = model_output.scores.cpu().detach().numpy() # 현재는 (156, 1) numpy ndarray. i번째 query, passage pair의 score가 저장됨 
+                passage_ids = model_output.passage_ids
+                prev_query_id = model_output.prev_query_id
+                # print("scores", scores)
+                # print(scores.shape)
+                # raise Exception("with")
+                # version1)
+                # for i in range(len(scores)):
+                #     qid = batch_query_ids[i]
+                #     for j in range(1000):
+                #         docid = batch_text_ids[i*1000+j]
+                #         score = scores[i][j] 
+                #         if qid not in all_results:
+                #             all_results[qid] = []
+                #         all_results[qid].append((docid, score))
+                # version2)
+                # 이제 score를 (1, 1000) numpy ndarray라고 가정
+                qid = batch_query_ids[0]
+                if prev_query_id not in all_results:
+                    all_results[prev_query_id] = []
+                for j in range(len(passage_ids)):
+                    docid = passage_ids[j]
+                    score = scores[0][j] 
+                    all_results[prev_query_id].append((docid, score))
+                    
+
+    with open(data_args.encoded_save_path, 'a') as f: # w to a
         for qid in all_results:
             results = sorted(all_results[qid], key=lambda x: x[1], reverse=True)
             for docid, score in results:

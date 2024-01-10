@@ -9,3 +9,5 @@ examples/coCondenser-marco/*
 *.tsv
 *.tar.gz
 *.sh
+*.out
+*.err

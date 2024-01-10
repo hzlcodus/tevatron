@@ -24,6 +24,7 @@ class TevatronTrainer(Trainer):
     def __init__(self, *args, **kwargs):
         super(TevatronTrainer, self).__init__(*args, **kwargs)
         self._dist_loss_scale_factor = dist.get_world_size() if self.args.negatives_x_device else 1
+        # self.step_counter = 0  # Initialize a step counter
 
     def _save(self, output_dir: Optional[str] = None):
         output_dir = output_dir if output_dir is not None else self.args.output_dir
@@ -58,12 +59,17 @@ class TevatronTrainer(Trainer):
         )
 
     def compute_loss(self, model, inputs):
-        print("inputs ", inputs)
-        query, passage, pos_passages, neg_score = inputs
-        return model(query=query, passage=passage, pos_passages=pos_passages, neg_score=neg_score).loss
+        query, passage = inputs
+        # print("inputs ", inputs)
+        print("inputs", inputs)
+        print("queries", query)
+        print("passages", passage)
+
+        return model(query=query, passage=passage).loss
 
     def training_step(self, *args):
-        return super(TevatronTrainer, self).training_step(*args) / self._dist_loss_scale_factor
+        loss = super(TevatronTrainer, self).training_step(*args) / self._dist_loss_scale_factor
+        return loss
 
 
 def split_dense_inputs(model_input: dict, chunk_size: int):
@@ -108,11 +114,15 @@ class GCTrainer(TevatronTrainer):
 
     def training_step(self, model, inputs) -> torch.Tensor:
         model.train()
-        queries, passages, pos_passages, neg_score = self._prepare_inputs(inputs)
-        queries, passages, pos_passages, neg_score = {'query': queries}, {'passage': passages}, {'pos_passage': pos_passages}, {'neg_score': neg_score}
+        queries, passages = self._prepare_inputs(inputs)
+        print("inputs", inputs)
+        print("queries", queries)
+        print("passages", passages)
+        raise Exception("!!")
+        queries, passages = {'query': queries}, {'passage': passages}
 
         _distributed = self.args.local_rank > -1
         self.gc.models = [model, model]
-        loss = self.gc(queries, passages, pos_passages, neg_score, no_sync_except_last=_distributed)
+        loss = self.gc(queries, passages, no_sync_except_last=_distributed)
 
         return loss / self._dist_loss_scale_factor

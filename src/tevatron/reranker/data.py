@@ -145,9 +145,6 @@ class RerankerInferenceCollator(DataCollatorWithPadding):
         collated_texts = super().__call__(texts)
         return query_ids, text_ids, collated_queries, collated_texts
 
-        return qq, dd, q_collated, d_collated
-
-
 class RerankPreProcessor:
     def __init__(self, tokenizer, query_max_length=32, text_max_length=256, separator=' '):
         self.tokenizer = tokenizer
@@ -168,6 +165,7 @@ class RerankPreProcessor:
                                             max_length=self.text_max_length,
                                             truncation=True)
         return {'query_id': example['query_id'], 'query': query, 'text_id': example['docid'], 'text': encoded_passages}
+
 
 class HFRerankDataset:
     def __init__(self, tokenizer: PreTrainedTokenizer, data_args: DataArguments, cache_dir: str):
